@@ -19,7 +19,7 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "typescript": "6.0.0"
+    "typescript": "6.0.3"
   },
   "engines": {
     "node": ">=20.9"
