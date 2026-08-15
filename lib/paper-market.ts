@@ -16,6 +16,20 @@ function randomWalk(price: number, maxMoveBps = 75) {
   return Math.max(0.01, price * (1 + moveBps / 10_000))
 }
 
+async function fetchFinnhubPrice(symbol: string) {
+  const apiKey = process.env.FINNHUB_API_KEY
+  if (!apiKey) return null
+
+  const url = new URL('https://finnhub.io/api/v1/quote')
+  url.searchParams.set('symbol', symbol)
+  url.searchParams.set('token', apiKey)
+  const response = await fetch(url, { cache: 'no-store' })
+  if (!response.ok) throw new Error(`Market data provider returned ${response.status}`)
+  const body = await response.json() as { c?: number; pc?: number }
+  if (!Number.isFinite(body.c) || Number(body.c) <= 0) return null
+  return Number(body.c)
+}
+
 export async function listPaperQuotes(): Promise<PaperQuote[]> {
   const rows = await sql`
     select symbol, price, previous_price, updated_at
@@ -42,7 +56,20 @@ export async function advancePaperMarket() {
     where symbol = any(${PAPER_SYMBOLS})
     order by symbol
   `
-  const next = rows.map((row) => ({ symbol: row.symbol as string, price: randomWalk(Number(row.price)) }))
+
+  const useFinnhub = Boolean(process.env.FINNHUB_API_KEY)
+  const next = [] as Array<{ symbol: string; price: number }>
+  for (const row of rows) {
+    let price: number | null = null
+    if (useFinnhub) {
+      try {
+        price = await fetchFinnhubPrice(String(row.symbol))
+      } catch {
+        // Fall back to the local random walk when the free provider is unavailable.
+      }
+    }
+    next.push({ symbol: String(row.symbol), price: price ?? randomWalk(Number(row.price)) })
+  }
 
   for (const quote of next) {
     await sql`

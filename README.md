@@ -7,6 +7,7 @@ A Robinhood-style paper-trading application backed by Neon Postgres. The current
 - Next.js App Router: UI + server API routes
 - Neon Postgres: users, sessions, paper accounts, positions, orders, fills, quotes
 - Vercel: hosting
+- Optional Finnhub development market-data feed
 
 ## Paper trading
 
@@ -22,9 +23,15 @@ Every application user gets a persistent $100,000 paper account on first use. Th
 - Fill records
 - Cash and position accounting
 - Randomized execution slippage
-- A persistent mocked market with an explicit "advance market" operation
+- An explicit market-advance operation that reprices the shared symbol universe and evaluates open orders
 
-The mocked symbol universe is AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, SPY, QQQ, and BRK.B.
+The preset symbol universe is AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, SPY, QQQ, and BRK.B.
+
+## Market data
+
+The simulator stores the latest price for each symbol in Postgres. When `FINNHUB_API_KEY` is configured, **Advance market** refreshes prices from Finnhub's US stock quote endpoint; when the provider is unavailable, it falls back to the local randomized walk.
+
+Finnhub's current free plan allows 60 API calls/minute and provides US market data, but its license is for personal use. It is suitable for development/testing, not as the commercial market-data license for a public trading product. See the Finnhub pricing terms before using it for anything beyond personal development.
 
 ## Database migrations
 
@@ -32,7 +39,9 @@ Schema changes are versioned under `db/migrations/` and tracked in `schema_migra
 
 ## Production secrets
 
-`DATABASE_URL` remains the only required external service connection for the paper-trading MVP. `PAPER_STARTING_CASH` is optional and defaults to `100000`.
+- `DATABASE_URL` — Neon Postgres connection string
+- `PAPER_STARTING_CASH` — optional, defaults to `100000`
+- `FINNHUB_API_KEY` — optional development-only market-data key
 
 Do not commit credentials or production connection strings.
 
