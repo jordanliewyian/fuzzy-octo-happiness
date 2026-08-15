@@ -1,5 +1,7 @@
 import { neon } from '@neondatabase/serverless'
 
+type DbRow = Record<string, any>
+
 let client: ReturnType<typeof neon> | undefined
 
 function getClient() {
@@ -10,6 +12,6 @@ function getClient() {
   return client
 }
 
-export function sql(strings: TemplateStringsArray, ...values: unknown[]) {
-  return getClient()(strings, ...values)
+export function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<DbRow[]> {
+  return getClient()(strings, ...values) as unknown as Promise<DbRow[]>
 }
