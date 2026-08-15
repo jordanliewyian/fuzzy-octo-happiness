@@ -4,10 +4,20 @@ type DbRow = Record<string, any>
 
 let client: ReturnType<typeof neon> | undefined
 
+function getDatabaseUrl() {
+  return (
+    process.env.DATABASE_URL ??
+    process.env.POSTGRES_URL ??
+    process.env.POSTGRES_PRISMA_URL
+  )
+}
+
 function getClient() {
   if (client) return client
-  const url = process.env.DATABASE_URL
-  if (!url) throw new Error('DATABASE_URL is not configured')
+  const url = getDatabaseUrl()
+  if (!url) {
+    throw new Error('Database connection is not configured')
+  }
   client = neon(url)
   return client
 }
