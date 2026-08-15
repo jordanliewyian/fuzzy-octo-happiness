@@ -1,0 +1,25 @@
+name: Database migrations
+
+on:
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: 20
+
+jobs:
+  migrate-production:
+    name: Apply production database migrations
+    runs-on: ubuntu-latest
+    environment: production-db
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run db:migrate

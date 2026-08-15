@@ -1,0 +1,31 @@
+{
+  "name": "robinhood-clone",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "typecheck": "tsc --noEmit",
+    "start": "next start",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:migrate:check": "node scripts/migrate.mjs --check"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "1.1.0",
+    "next": "16.2.12",
+    "pg": "8.16.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/pg": "8.15.5",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "6.0.3"
+  },
+  "engines": {
+    "node": ">=20.9"
+  }
+}
