@@ -1,0 +1,3 @@
+import {NextResponse} from 'next/server';import {z} from 'zod';import {sql} from '@/lib/db';import {verifyPassword} from '@/lib/password';import {createSession} from '@/lib/session'
+const schema=z.object({email:z.string().email(),password:z.string().min(8)})
+export async function POST(req:Request){try{const body=schema.parse(await req.json());const rows=await sql`select id,password_hash from users where email=${body.email.toLowerCase()}`;if(!rows[0]||!(await verifyPassword(body.password,rows[0].password_hash)))return NextResponse.json({error:'Invalid credentials'},{status:401});await createSession(rows[0].id);return NextResponse.json({ok:true})}catch(e:any){return NextResponse.json({error:e.message||'Login failed'},{status:400})}}

@@ -1,0 +1,1 @@
+import {NextResponse} from 'next/server';import {getUser} from '@/lib/session';import {alpacaPositions} from '@/lib/alpaca';export async function GET(){if(!await getUser())return NextResponse.json({error:'Unauthorized'},{status:401});try{return NextResponse.json({positions:await alpacaPositions()})}catch(e:any){return NextResponse.json({error:e.message},{status:502})}}

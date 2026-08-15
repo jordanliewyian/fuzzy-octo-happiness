@@ -1,0 +1,9 @@
+{
+  "name": "robinhood-clone",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {"dev":"next dev","build":"next build","start":"next start","lint":"next lint"},
+  "dependencies": {"@neondatabase/serverless":"latest","next":"latest","react":"latest","react-dom":"latest","recharts":"latest","zod":"latest"},
+  "devDependencies": {"@types/node":"latest","@types/react":"latest","@types/react-dom":"latest","typescript":"latest"},
+  "engines": {"node": ">=20"}
+}
