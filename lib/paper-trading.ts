@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { sql, withTransaction } from './db'
-import { getPaperQuote } from './paper-market'
+import { PAPER_SYMBOLS, getPaperQuote } from './paper-market'
 
 export type PaperOrderType = 'market' | 'limit' | 'stop' | 'stop_limit'
 export type PaperSide = 'buy' | 'sell'
@@ -18,7 +18,7 @@ type OrderInput = {
   clientOrderId?: string
 }
 
-type Execution = { action: 'fill' | 'hold' | 'reject'; price?: number; reason?: string }
+type Execution = { action: 'fill' | 'hold'; price?: number }
 
 const SLIPPAGE_BPS = 10
 
@@ -93,31 +93,29 @@ export async function submitPaperOrder(input: OrderInput) {
   const quote = await getPaperQuote(input.symbol)
   if (!quote) throw new Error(`Unsupported paper symbol: ${input.symbol}`)
 
-  const orderId = randomUUID()
-  const brokerOrderId = `paper_${orderId}`
-  const clientOrderId = input.clientOrderId || null
-  const execution = evaluateExecution(input, quote.price, false)
-
   return withTransaction(async (tx) => {
-    if (clientOrderId) {
+    if (input.clientOrderId) {
       const existing = await tx.query(
         'select id, broker_order_id, status, symbol, side, qty, order_type, time_in_force from orders where user_id = $1 and client_order_id = $2',
-        [input.userId, clientOrderId],
+        [input.userId, input.clientOrderId],
       )
       if (existing.rows[0]) return existing.rows[0]
     }
 
-    const initialStatus = execution.action === 'fill' ? 'filled' : execution.action === 'reject' ? 'rejected' : 'open'
+    const orderId = randomUUID()
+    const brokerOrderId = `paper_${orderId}`
+    const execution = evaluateExecution(input, quote.price, false)
+    const initialStatus = execution.action === 'fill' ? 'open' : 'open'
+
     const order = await tx.query(
       `insert into orders(
         id, user_id, broker_order_id, symbol, side, qty, status, execution_mode,
         order_type, time_in_force, limit_price, stop_price, filled_qty,
-        remaining_qty, avg_fill_price, submitted_at, updated_at, client_order_id,
-        rejection_reason
-      ) values ($1,$2,$3,$4,$5,$6,$7,'paper',$8,$9,$10,$11,$12,$13,$14,now(),now(),$15,$16)
+        remaining_qty, avg_fill_price, submitted_at, updated_at, client_order_id
+      ) values ($1,$2,$3,$4,$5,$6,$7,'paper',$8,$9,$10,$11,0,$12,null,now(),now(),$13)
       returning id, broker_order_id, symbol, side, qty, status, execution_mode,
         order_type, time_in_force, limit_price, stop_price, filled_qty,
-        remaining_qty, avg_fill_price, submitted_at, rejection_reason`,
+        remaining_qty, avg_fill_price, submitted_at, updated_at`,
       [
         orderId,
         input.userId,
@@ -130,16 +128,37 @@ export async function submitPaperOrder(input: OrderInput) {
         input.timeInForce,
         input.limitPrice ?? null,
         input.stopPrice ?? null,
-        execution.action === 'fill' ? input.qty : 0,
-        execution.action === 'fill' ? 0 : input.qty,
-        execution.action === 'fill' ? execution.price : null,
-        clientOrderId,
-        execution.action === 'reject' ? execution.reason : null,
+        input.qty,
+        input.clientOrderId ?? null,
       ],
     )
 
     if (execution.action === 'fill' && execution.price !== undefined) {
-      await applyFill(tx, input.userId, orderId, input.symbol, input.side, input.qty, execution.price)
+      try {
+        await applyFill(tx, input.userId, orderId, input.symbol, input.side, input.qty, execution.price)
+        const updated = await tx.query(
+          `update orders set status = 'filled', filled_qty = qty, remaining_qty = 0,
+             avg_fill_price = $1, updated_at = now(),
+             triggered_at = case when order_type in ('stop','stop_limit') then now() else triggered_at end
+           where id = $2
+           returning id, broker_order_id, symbol, side, qty, status, execution_mode,
+             order_type, time_in_force, limit_price, stop_price, filled_qty,
+             remaining_qty, avg_fill_price, submitted_at, updated_at`,
+          [execution.price, orderId],
+        )
+        return updated.rows[0]
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Order rejected'
+        const rejected = await tx.query(
+          `update orders set status = 'rejected', rejection_reason = $1, updated_at = now()
+           where id = $2
+           returning id, broker_order_id, symbol, side, qty, status, execution_mode,
+             order_type, time_in_force, limit_price, stop_price, filled_qty,
+             remaining_qty, avg_fill_price, submitted_at, updated_at, rejection_reason`,
+          [reason, orderId],
+        )
+        return rejected.rows[0]
+      }
     }
 
     return order.rows[0]
@@ -175,62 +194,88 @@ export async function getPaperOrders(userId: string) {
 }
 
 export async function advancePaperOrders(userId?: string) {
-  const openOrders = await sql`
-    select id, user_id, symbol, side, qty, status, order_type,
-      limit_price, stop_price, filled_qty, remaining_qty
-    from orders
-    where execution_mode = 'paper' and status in ('open','triggered')
-    ${userId ? sql`and user_id = ${userId}` : sql``}
-    order by submitted_at asc
-  `
+  const openOrders = userId
+    ? await sql`
+        select id, user_id, symbol, side, qty, status, order_type,
+          limit_price, stop_price, filled_qty, remaining_qty
+        from orders
+        where execution_mode = 'paper' and status in ('open','triggered') and user_id = ${userId}
+        order by submitted_at asc
+      `
+    : await sql`
+        select id, user_id, symbol, side, qty, status, order_type,
+          limit_price, stop_price, filled_qty, remaining_qty
+        from orders
+        where execution_mode = 'paper' and status in ('open','triggered')
+        order by submitted_at asc
+      `
 
   let filled = 0
   let rejected = 0
+  let triggered = 0
+
   for (const order of openOrders) {
     const quote = await getPaperQuote(String(order.symbol))
     if (!quote) continue
-    const execution = evaluateExecution(
-      {
-        userId: String(order.user_id),
-        symbol: String(order.symbol),
-        side: String(order.side) as PaperSide,
-        qty: Number(order.remaining_qty ?? order.qty),
-        orderType: String(order.order_type) as PaperOrderType,
-        timeInForce: 'gtc',
-        limitPrice: order.limit_price == null ? undefined : Number(order.limit_price),
-        stopPrice: order.stop_price == null ? undefined : Number(order.stop_price),
-      },
-      quote.price,
-      order.status === 'triggered',
-    )
 
-    if (execution.action === 'fill' && execution.price !== undefined) {
-      await withTransaction(async (tx) => {
-        const locked = await tx.query(
-          `select id, user_id, symbol, side, remaining_qty, status
-           from orders where id = $1 for update`,
-          [order.id],
+    const input = inputOrderFromRow(order)
+    const wasTriggered = String(order.status) === 'triggered'
+    const execution = evaluateExecution(input, quote.price, wasTriggered)
+    const crossed = crossedStop(input, quote.price)
+
+    if (!wasTriggered && input.orderType === 'stop_limit' && crossed && execution.action === 'hold') {
+      await sql`
+        update orders
+        set status = 'triggered', triggered_at = now(), updated_at = now()
+        where id = ${order.id} and status = 'open'
+      `
+      triggered += 1
+      continue
+    }
+
+    if (execution.action !== 'fill' || execution.price === undefined) continue
+
+    await withTransaction(async (tx) => {
+      const locked = await tx.query(
+        `select id, user_id, symbol, side, order_type, remaining_qty, status
+         from orders where id = $1 for update`,
+        [order.id],
+      )
+      const lockedOrder = locked.rows[0]
+      if (!lockedOrder || !['open', 'triggered'].includes(String(lockedOrder.status))) return
+
+      const qty = Number(lockedOrder.remaining_qty)
+      try {
+        await applyFill(
+          tx,
+          String(lockedOrder.user_id),
+          String(lockedOrder.id),
+          String(lockedOrder.symbol),
+          String(lockedOrder.side) as PaperSide,
+          qty,
+          execution.price!,
         )
-        const lockedOrder = locked.rows[0]
-        if (!lockedOrder || !['open', 'triggered'].includes(String(lockedOrder.status))) return
-        const qty = Number(lockedOrder.remaining_qty)
-        await applyFill(tx, String(lockedOrder.user_id), String(lockedOrder.id), String(lockedOrder.symbol), String(lockedOrder.side) as PaperSide, qty, execution.price!)
         await tx.query(
           `update orders set status = 'filled', filled_qty = qty, remaining_qty = 0,
-             avg_fill_price = $1, updated_at = now(), triggered_at = case when status = 'open' and order_type in ('stop','stop_limit') then coalesce(triggered_at, now()) else triggered_at end
+             avg_fill_price = $1, updated_at = now(),
+             triggered_at = case when order_type in ('stop','stop_limit') then coalesce(triggered_at, now()) else triggered_at end
            where id = $2`,
           [execution.price, lockedOrder.id],
         )
-      })
-      filled += 1
-    } else if (execution.action === 'hold' && order.order_type === 'stop_limit' && order.status === 'open' && crossedStop(inputOrderFromRow(order), quote.price)) {
-      await sql`update orders set status = 'triggered', triggered_at = now(), updated_at = now() where id = ${order.id} and status = 'open'`
-    } else if (execution.action === 'reject') {
-      await sql`update orders set status = 'rejected', rejection_reason = ${execution.reason ?? 'Rejected'}, updated_at = now() where id = ${order.id} and status in ('open','triggered')`
-      rejected += 1
-    }
+        filled += 1
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Order rejected'
+        await tx.query(
+          `update orders set status = 'rejected', rejection_reason = $1, updated_at = now()
+           where id = $2`,
+          [reason, lockedOrder.id],
+        )
+        rejected += 1
+      }
+    })
   }
-  return { scanned: openOrders.length, filled, rejected }
+
+  return { scanned: openOrders.length, triggered, filled, rejected }
 }
 
 function inputOrderFromRow(order: Record<string, any>): OrderInput {
@@ -269,7 +314,7 @@ function evaluateExecution(input: OrderInput, marketPrice: number, alreadyTrigge
 }
 
 function validateOrderInput(input: OrderInput) {
-  if (!PAPER_SYMBOLS.includes(input.symbol as never)) throw new Error(`Unsupported paper symbol: ${input.symbol}`)
+  if (!PAPER_SYMBOLS.includes(input.symbol as (typeof PAPER_SYMBOLS)[number])) throw new Error(`Unsupported paper symbol: ${input.symbol}`)
   if (!Number.isFinite(input.qty) || input.qty <= 0) throw new Error('Quantity must be greater than zero')
   if (input.orderType === 'limit' || input.orderType === 'stop_limit') {
     if (!Number.isFinite(input.limitPrice) || input.limitPrice! <= 0) throw new Error('Limit price must be greater than zero')
@@ -277,14 +322,26 @@ function validateOrderInput(input: OrderInput) {
   if (input.orderType === 'stop' || input.orderType === 'stop_limit') {
     if (!Number.isFinite(input.stopPrice) || input.stopPrice! <= 0) throw new Error('Stop price must be greater than zero')
   }
+  if (!['day', 'gtc'].includes(input.timeInForce)) throw new Error('Unsupported time-in-force')
 }
 
-async function applyFill(tx: { query: (text: string, values?: unknown[]) => Promise<{ rows: Record<string, any>[]; rowCount: number | null }> }, userId: string, orderId: string, symbol: string, side: PaperSide, qty: number, price: number) {
+async function applyFill(
+  tx: { query: (text: string, values?: unknown[]) => Promise<{ rows: Record<string, any>[]; rowCount: number | null }> },
+  userId: string,
+  orderId: string,
+  symbol: string,
+  side: PaperSide,
+  qty: number,
+  price: number,
+) {
   const account = await tx.query('select cash from paper_accounts where user_id = $1 for update', [userId])
   if (!account.rows[0]) throw new Error('Paper account not found')
   const cash = Number(account.rows[0].cash)
 
-  const position = await tx.query('select quantity, average_cost from positions where user_id = $1 and symbol = $2 for update', [userId, symbol])
+  const position = await tx.query(
+    'select quantity, average_cost from positions where user_id = $1 and symbol = $2 for update',
+    [userId, symbol],
+  )
   const currentQty = Number(position.rows[0]?.quantity ?? 0)
   const currentAvg = Number(position.rows[0]?.average_cost ?? 0)
 
@@ -296,14 +353,18 @@ async function applyFill(tx: { query: (text: string, values?: unknown[]) => Prom
     await tx.query(
       `insert into positions(user_id, symbol, quantity, average_cost, updated_at)
        values($1,$2,$3,$4,now())
-       on conflict(user_id,symbol) do update set quantity = excluded.quantity, average_cost = excluded.average_cost, updated_at = now()`,
+       on conflict(user_id,symbol) do update set quantity = excluded.quantity,
+         average_cost = excluded.average_cost, updated_at = now()`,
       [userId, symbol, newQty, newAvg],
     )
     await tx.query('update paper_accounts set cash = cash - $1, updated_at = now() where user_id = $2', [cost, userId])
   } else {
     if (currentQty + 1e-9 < qty) throw new Error('Insufficient shares to sell')
     const newQty = currentQty - qty
-    await tx.query('update positions set quantity = $1, updated_at = now() where user_id = $2 and symbol = $3', [newQty, userId, symbol])
+    await tx.query(
+      'update positions set quantity = $1, updated_at = now() where user_id = $2 and symbol = $3',
+      [newQty, userId, symbol],
+    )
     await tx.query('update paper_accounts set cash = cash + $1, updated_at = now() where user_id = $2', [qty * price, userId])
   }
 
