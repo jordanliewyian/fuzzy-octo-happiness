@@ -6,7 +6,7 @@ export type PaperOrderType = 'market' | 'limit' | 'stop' | 'stop_limit'
 export type PaperSide = 'buy' | 'sell'
 export type PaperTimeInForce = 'day' | 'gtc'
 
-type OrderInput = {
+export type OrderInput = {
   userId: string
   symbol: string
   side: PaperSide
@@ -18,7 +18,7 @@ type OrderInput = {
   clientOrderId?: string
 }
 
-type Execution = { action: 'fill' | 'hold'; price?: number }
+export type Execution = { action: 'fill' | 'hold'; price?: number }
 
 const SLIPPAGE_BPS = 10
 
@@ -291,29 +291,29 @@ function inputOrderFromRow(order: Record<string, any>): OrderInput {
   }
 }
 
-function crossedStop(input: OrderInput, price: number) {
+export function crossedStop(input: OrderInput, price: number) {
   if (input.stopPrice === undefined) return false
   return input.side === 'buy' ? price >= input.stopPrice : price <= input.stopPrice
 }
 
-function evaluateExecution(input: OrderInput, marketPrice: number, alreadyTriggered: boolean): Execution {
-  if (input.orderType === 'market') return { action: 'fill', price: withSlippage(marketPrice, input.side) }
+export function evaluateExecution(input: OrderInput, marketPrice: number, alreadyTriggered: boolean, slippageBps = SLIPPAGE_BPS): Execution {
+  if (input.orderType === 'market') return { action: 'fill', price: withSlippage(marketPrice, input.side, slippageBps) }
 
   if (input.orderType === 'limit') {
     const executable = input.side === 'buy' ? marketPrice <= input.limitPrice! : marketPrice >= input.limitPrice!
-    return executable ? { action: 'fill', price: clampToLimit(withSlippage(marketPrice, input.side), input.side, input.limitPrice!) } : { action: 'hold' }
+    return executable ? { action: 'fill', price: clampToLimit(withSlippage(marketPrice, input.side, slippageBps), input.side, input.limitPrice!) } : { action: 'hold' }
   }
 
   const triggered = alreadyTriggered || crossedStop(input, marketPrice)
   if (!triggered) return { action: 'hold' }
 
-  if (input.orderType === 'stop') return { action: 'fill', price: withSlippage(marketPrice, input.side) }
+  if (input.orderType === 'stop') return { action: 'fill', price: withSlippage(marketPrice, input.side, slippageBps) }
 
   const executable = input.side === 'buy' ? marketPrice <= input.limitPrice! : marketPrice >= input.limitPrice!
-  return executable ? { action: 'fill', price: clampToLimit(withSlippage(marketPrice, input.side), input.side, input.limitPrice!) } : { action: 'hold' }
+  return executable ? { action: 'fill', price: clampToLimit(withSlippage(marketPrice, input.side, slippageBps), input.side, input.limitPrice!) } : { action: 'hold' }
 }
 
-function validateOrderInput(input: OrderInput) {
+export function validateOrderInput(input: OrderInput) {
   if (!PAPER_SYMBOLS.includes(input.symbol as (typeof PAPER_SYMBOLS)[number])) throw new Error(`Unsupported paper symbol: ${input.symbol}`)
   if (!Number.isFinite(input.qty) || input.qty <= 0) throw new Error('Quantity must be greater than zero')
   if (input.orderType === 'limit' || input.orderType === 'stop_limit') {
@@ -374,9 +374,9 @@ async function applyFill(
   )
 }
 
-function withSlippage(price: number, side: PaperSide) {
+function withSlippage(price: number, side: PaperSide, slippageBps = SLIPPAGE_BPS) {
   const direction = side === 'buy' ? 1 : -1
-  const randomBps = Math.random() * SLIPPAGE_BPS
+  const randomBps = Math.random() * slippageBps
   return price * (1 + direction * randomBps / 10_000)
 }
 
