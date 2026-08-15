@@ -25,17 +25,22 @@ export default function Home(){
   async function refresh(){
     await loadAlpacaStatus();
     const a=await fetch('/api/portfolio');
-    if(a.ok){const j=await a.json();setAccount(j.account);setLogged(true)}
+    if(a.ok){const j=await a.json();setAccount(j.account)}
     const p=await fetch('/api/positions');
     if(p.ok)setPositions((await p.json()).positions||[]);
   }
 
-  useEffect(()=>{refresh()},[])
+  useEffect(()=>{
+    (async()=>{
+      const session=await fetch('/api/me');
+      if(session.ok){setLogged(true);await refresh()}
+    })();
+  },[])
 
   async function login(){
     let r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
     if(!r.ok)r=await fetch('/api/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
-    if(r.ok){setMsg('');setLogged(true);await loadAlpacaStatus();}
+    if(r.ok){setMsg('');setLogged(true);await refresh()}
     else setMsg((await r.json()).error||'Authentication failed');
   }
 
@@ -54,6 +59,6 @@ export default function Home(){
 
   if(!logged)return <main className="shell"><div className="card" style={{maxWidth:430,margin:'12vh auto'}}><div className="brand">Robinhood Clone</div><p className="muted">Paper trading with a real backend.</p><div className="stack"><input className="input" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email"/><input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password"/><button className="btn" onClick={login}>Sign in / create account</button>{msg&&<small>{msg}</small>}</div></div></main>
 
-  if(!alpaca?.connected)return <main className="shell"><header className="top"><div className="brand">Robinhood Clone</div><button className="btn secondary" onClick={async()=>{await fetch('/api/auth/logout',{method:'POST'});location.reload()}}>Log out</button></header><div className="card" style={{maxWidth:560,margin:'10vh auto'}}><h2>Connect Alpaca</h2><p className="muted">Connect your own Alpaca {process.env.NEXT_PUBLIC_ALPACA_OAUTH_ENV==='live'?'live':'paper'} account. We never ask for or store your Alpaca password.</p><a className="btn" href="/api/alpaca/connect">Connect with Alpaca</a>{msg&&<p><small>{msg}</small></p>}</div></main>
+  if(!alpaca?.connected)return <main className="shell"><header className="top"><div className="brand">Robinhood Clone</div><button className="btn secondary" onClick={async()=>{await fetch('/api/auth/logout',{method:'POST'});location.reload()}}>Log out</button></header><div className="card" style={{maxWidth:560,margin:'10vh auto'}}><h2>Connect Alpaca</h2><p className="muted">Connect your own Alpaca account. We never ask for or store your Alpaca password.</p><a className="btn" href="/api/alpaca/connect">Connect with Alpaca</a>{msg&&<p><small>{msg}</small></p>}</div></main>
 
   return <main className="shell"><header className="top"><div className="brand">Robinhood Clone</div><div className="row"><span className="muted">Alpaca {alpaca.environment}</span><button className="btn secondary" onClick={async()=>{await fetch('/api/auth/logout',{method:'POST'});location.reload()}}>Log out</button></div></header><div className="grid"><section className="card"><div className="muted">Portfolio value</div><div className="value">${Number(account?.equity||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div className="row muted"><span>Cash ${Number(account?.cash||0).toLocaleString()}</span><span>Buying power ${Number(account?.buying_power||0).toLocaleString()}</span></div><hr/><h3>Positions</h3><div className="list">{positions.length?positions.map(p=><div className="item" key={p.symbol}><b>{p.symbol}</b><span>{Number(p.qty).toFixed(4)} · ${Number(p.market_value).toFixed(2)}</span></div>):<div className="muted">No positions yet.</div>}</div></section><aside className="card"><h3>Trade</h3><div className="stack"><input className="input" value={symbol} onChange={e=>setSymbol(e.target.value.toUpperCase())}/><button className="btn secondary" onClick={getQuote}>Get quote</button>{quote&&<div><div className="quote">${Number(quote.price).toFixed(2)}</div><div className="muted">{quote.symbol}</div></div>}<input className="input" value={qty} onChange={e=>setQty(e.target.value)} type="number" min="0.0001" step="0.0001"/><div className="row"><button className="btn buy" onClick={()=>order('buy')}>Buy</button><button className="btn sell" onClick={()=>order('sell')}>Sell</button></div>{msg&&<small>{msg}</small>}</div></aside></div></main>}
