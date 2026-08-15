@@ -1,20 +1,25 @@
-# Robinhood Clone — real backend, paper trading
+# Robinhood Clone — real backend, Alpaca Connect OAuth
 
-A Robinhood-style trading application backed by Neon Postgres and Alpaca paper trading.
+A Robinhood-style trading application backed by Neon Postgres and Alpaca Connect OAuth.
 
 ## Stack
 
 - Next.js App Router: UI + server API routes
-- Neon Postgres: users, sessions, orders, positions, watchlists
-- Alpaca: paper account, order routing and market quotes
+- Neon Postgres: users, sessions, orders, positions, watchlists, Alpaca connections
+- Alpaca Connect OAuth: each user connects their own Alpaca paper account
 - Vercel: hosting
 
 ## Setup
 
 1. In Vercel, connect the Neon integration and configure the database connection for the project.
 2. Configure `DATABASE_URL` in Vercel. The application also accepts `POSTGRES_URL` and `POSTGRES_PRISMA_URL` as fallbacks.
-3. Create an Alpaca paper account and add its API key/secret.
-4. Deploy.
+3. Register the application in Alpaca Connect and obtain an OAuth Client ID and Client Secret.
+4. Configure `ALPACA_CLIENT_ID`, `ALPACA_CLIENT_SECRET`, `ALPACA_OAUTH_REDIRECT_URI`, `ALPACA_OAUTH_ENV=paper`, and `ALPACA_OAUTH_SCOPES=trading data` in Vercel.
+5. Generate a random 32-byte base64 key and configure it as `APP_ENCRYPTION_KEY` in Vercel. This encrypts user Alpaca OAuth access tokens at rest.
+6. Add the exact callback URL to the Alpaca Connect application's allowed redirect URIs.
+7. Deploy and click **Connect with Alpaca** after signing in.
+
+For production live trading, set `ALPACA_OAUTH_ENV=live` only after the Alpaca Connect application has the required approval. Alpaca states that live trading for other users requires app approval.
 
 ## Database migrations
 
@@ -45,10 +50,10 @@ The repository includes `.github/workflows/migrate.yml`, which is intentionally 
 1. In GitHub, open **Settings → Environments** and create an environment named `production-db`.
 2. Add an environment secret named `DATABASE_URL` containing the current Neon connection string.
 3. Optionally configure required reviewers on `production-db` so migrations require approval.
-4. In **Actions → Database migrations**, choose **Run workflow** on `agent/robinhood-mvp` (or the branch containing the migration), then approve the environment when prompted.
+4. In **Actions → Database migrations**, choose **Run workflow** on the branch containing the migration, then approve the environment when prompted.
 5. The workflow runs `npm run db:migrate` and applies only migrations that are not already recorded in `schema_migrations`.
 
-Do not put database credentials in source files, `.env` files committed to Git, or pull requests.
+Do not put database credentials, Alpaca client secrets, or OAuth access tokens in source files, `.env` files committed to Git, or pull requests.
 
 ## Build verification
 
@@ -64,4 +69,4 @@ For a failed Vercel preview, open the deployment's Build Logs and copy the first
 
 ## Trading safety
 
-This is intentionally paper-only. Before live money, add brokerage OAuth/linking, order reconciliation, idempotency, server-side risk limits, rate limiting, immutable audit logs, monitoring/rollback, and regulatory/compliance review.
+This branch uses Alpaca paper accounts by default. Before live money, add order reconciliation, idempotency, server-side risk limits, rate limiting, immutable audit logs, monitoring/rollback, and regulatory/compliance review. Alpaca also requires approval for live trading for other users.
