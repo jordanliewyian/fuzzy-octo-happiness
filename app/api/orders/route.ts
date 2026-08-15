@@ -1,1 +1,9 @@
-import {NextResponse} from 'next/server';import {getUser} from '@/lib/session';import {sql} from '@/lib/db';export async function GET(){const u=await getUser();if(!u)return NextResponse.json({error:'Unauthorized'},{status:401});return NextResponse.json({orders:await sql`select id,broker_order_id,symbol,side,qty,status,created_at from orders where user_id=${u.id} order by created_at desc limit 100`})}
+import { NextResponse } from 'next/server'
+import { getUser } from '@/lib/session'
+import { getPaperOrders } from '@/lib/paper-trading'
+
+export async function GET() {
+  const user = await getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return NextResponse.json({ orders: await getPaperOrders(user.id) })
+}
