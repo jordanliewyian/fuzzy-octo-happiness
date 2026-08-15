@@ -2,8 +2,30 @@
   "name": "robinhood-clone",
   "version": "0.1.0",
   "private": true,
-  "scripts": {"dev":"next dev","build":"next build","start":"next start","lint":"next lint"},
-  "dependencies": {"@neondatabase/serverless":"latest","next":"latest","react":"latest","react-dom":"latest","recharts":"latest","zod":"latest"},
-  "devDependencies": {"@types/node":"latest","@types/react":"latest","@types/react-dom":"latest","typescript":"latest"},
-  "engines": {"node": ">=20"}
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "typecheck": "tsc --noEmit",
+    "start": "next start",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "1.1.0",
+    "next": "16.2.12",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "latest",
+    "eslint": "latest",
+    "@eslint/js": "latest",
+    "typescript-eslint": "latest"
+  },
+  "engines": {
+    "node": ">=20.9"
+  }
 }
