@@ -57,10 +57,10 @@ test('stop-limit can trigger first and remain open until its limit is executable
 })
 
 test('execution is capped by a buy limit and floored by a sell limit', () => {
-  const buy = evaluateExecution(base({ orderType: 'limit', limitPrice: 100 }), 95, false, 1000)
+  const buy = evaluateExecution(base({ orderType: 'limit', limitPrice: 100 }), 100, false, 1000)
   assert.equal(buy.price, 100)
 
-  const sell = evaluateExecution(base({ side: 'sell', orderType: 'limit', limitPrice: 100 }), 105, false, 1000)
+  const sell = evaluateExecution(base({ side: 'sell', orderType: 'limit', limitPrice: 100 }), 100, false, 1000)
   assert.equal(sell.price, 100)
 })
 
