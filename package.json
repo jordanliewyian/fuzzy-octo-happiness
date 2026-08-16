@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
     "start": "next start",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:check": "node scripts/migrate.mjs --check"
@@ -23,6 +24,7 @@
     "@types/pg": "8.15.5",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "tsx": "4.20.3",
     "typescript": "6.0.3"
   },
   "engines": {

@@ -1,67 +1,50 @@
-# Robinhood Clone — real backend, paper trading
+# Robinhood Clone — self-hosted paper trading
 
-A Robinhood-style trading application backed by Neon Postgres and Alpaca paper trading.
+A Robinhood-style paper-trading application backed by Neon Postgres. The current trading path is fully simulated by the application; no brokerage account is required.
 
 ## Stack
 
 - Next.js App Router: UI + server API routes
-- Neon Postgres: users, sessions, orders, positions, watchlists
-- Alpaca: paper account, order routing and market quotes
+- Neon Postgres: users, sessions, paper accounts, positions, orders, fills, quotes
 - Vercel: hosting
+- Optional Finnhub development market-data feed
 
-## Setup
+## Paper trading
 
-1. In Vercel, connect the Neon integration and configure the database connection for the project.
-2. Configure `DATABASE_URL` in Vercel. The application also accepts `POSTGRES_URL` and `POSTGRES_PRISMA_URL` as fallbacks.
-3. Create an Alpaca paper account and add its API key/secret.
-4. Deploy.
+Every application user gets a persistent $100,000 paper account on first use. The simulator currently supports:
+
+- Market orders
+- Limit orders
+- Stop orders
+- Stop-limit orders
+- Day and GTC time-in-force values
+- Fractional quantities
+- Order cancellation
+- Fill records
+- Cash and position accounting
+- Randomized execution slippage
+- An explicit market-advance operation that reprices the shared symbol universe and evaluates open orders
+
+The preset symbol universe is AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, SPY, QQQ, and BRK.B.
+
+## Market data
+
+The simulator stores the latest price for each symbol in Postgres. When `FINNHUB_API_KEY` is configured, **Advance market** refreshes prices from Finnhub's US stock quote endpoint; when the provider is unavailable, it falls back to the local randomized walk.
+
+Finnhub's current free plan allows 60 API calls/minute and provides US market data, but its license is for personal use. It is suitable for development/testing, not as the commercial market-data license for a public trading product. See the Finnhub pricing terms before using it for anything beyond personal development.
 
 ## Database migrations
 
-Database schema changes are versioned under `db/migrations/` and tracked in the `schema_migrations` table. Never edit an already-applied migration; add a new numbered migration instead.
+Schema changes are versioned under `db/migrations/` and tracked in `schema_migrations`. Apply the production migration from the protected GitHub Actions workflow before testing a new deployment.
 
-### Apply locally or from a secure admin machine
+## Production secrets
 
-Set a connection string in your shell without committing it:
+- `DATABASE_URL` — Neon Postgres connection string
+- `PAPER_STARTING_CASH` — optional, defaults to `100000`
+- `FINNHUB_API_KEY` — optional development-only market-data key
 
-```bash
-export DATABASE_URL='postgresql://...'
-npm install
-npm run db:migrate
-```
-
-To check whether the database has pending migrations without applying them:
-
-```bash
-npm run db:migrate:check
-```
-
-The runner takes a PostgreSQL advisory lock so two migration jobs cannot run concurrently. Each migration runs in a transaction and is recorded only after it succeeds.
-
-### Apply to production with GitHub Actions
-
-The repository includes `.github/workflows/migrate.yml`, which is intentionally manual rather than running on every deploy.
-
-1. In GitHub, open **Settings → Environments** and create an environment named `production-db`.
-2. Add an environment secret named `DATABASE_URL` containing the current Neon connection string.
-3. Optionally configure required reviewers on `production-db` so migrations require approval.
-4. In **Actions → Database migrations**, choose **Run workflow** on `agent/robinhood-mvp` (or the branch containing the migration), then approve the environment when prompted.
-5. The workflow runs `npm run db:migrate` and applies only migrations that are not already recorded in `schema_migrations`.
-
-Do not put database credentials in source files, `.env` files committed to Git, or pull requests.
-
-## Build verification
-
-The repository defines `npm run typecheck` and `npm run build`, and GitHub Actions runs both on pull requests and pushes to `main` / `agent/*`.
-
-## Database health
-
-`GET /api/health/db` verifies that the application can reach Postgres and returns only a sanitized status; credentials are never returned.
-
-## Vercel troubleshooting
-
-For a failed Vercel preview, open the deployment's Build Logs and copy the first `Module not found`, TypeScript, or build error. The Vercel GitHub integration posts the deployment URL back to the pull request.
+Do not commit credentials or production connection strings.
 
 ## Trading safety
 
-This is intentionally paper-only. Before live money, add brokerage OAuth/linking, order reconciliation, idempotency, server-side risk limits, rate limiting, immutable audit logs, monitoring/rollback, and regulatory/compliance review.
+The paper engine is intentionally isolated from live brokerage APIs. Before real-money trading, add broker adapters, reconciliation, idempotency, risk limits, audit logging, monitoring, and regulatory/compliance review.
