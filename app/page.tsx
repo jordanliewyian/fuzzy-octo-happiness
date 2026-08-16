@@ -8,6 +8,15 @@ type Quote = { symbol: string; price: number; previousPrice: number; change: num
 type Order = { id: string; symbol: string; side: string; qty: number; status: string; order_type: string; time_in_force: string; limit_price?: number; stop_price?: number; filled_qty: number; remaining_qty: number; avg_fill_price?: number; rejection_reason?: string }
 
 const symbols = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'TSLA', 'SPY', 'QQQ', 'BRK.B']
+const GENERIC_SERVER_ERROR = 'There was an unexpected issue on our end. Please try again later'
+
+async function responseBody(response: Response) {
+  try {
+    return await response.json() as { error?: string; [key: string]: unknown }
+  } catch {
+    return {}
+  }
+}
 
 export default function Home() {
   const [email, setEmail] = useState('demo@example.com')
@@ -26,58 +35,96 @@ export default function Home() {
   const [msg, setMsg] = useState('')
 
   async function refresh() {
-    const [a, p, o] = await Promise.all([fetch('/api/portfolio'), fetch('/api/positions'), fetch('/api/orders')])
-    if (a.ok) {
-      const j = await a.json()
-      setAccount(j.account)
-      setLogged(true)
-    } else if (a.status === 401) {
-      setLogged(false)
+    try {
+      const [a, p, o] = await Promise.all([fetch('/api/portfolio'), fetch('/api/positions'), fetch('/api/orders')])
+      const [accountBody, positionsBody, ordersBody] = await Promise.all([responseBody(a), responseBody(p), responseBody(o)])
+
+      if (a.ok) {
+        setAccount(accountBody.account as Account)
+        setLogged(true)
+      } else if (a.status === 401) {
+        setLogged(false)
+      } else if (a.status >= 500) {
+        setMsg(GENERIC_SERVER_ERROR)
+      }
+
+      if (p.ok) setPositions((positionsBody.positions as Position[]) || [])
+      else if (p.status >= 500) setMsg(GENERIC_SERVER_ERROR)
+
+      if (o.ok) setOrders((ordersBody.orders as Order[]) || [])
+      else if (o.status >= 500) setMsg(GENERIC_SERVER_ERROR)
+    } catch {
+      setMsg(GENERIC_SERVER_ERROR)
     }
-    if (p.ok) setPositions((await p.json()).positions || [])
-    if (o.ok) setOrders((await o.json()).orders || [])
   }
 
   useEffect(() => { refresh() }, [])
 
   async function login() {
-    let r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
-    if (!r.ok && r.status === 401) {
-      r = await fetch('/api/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
+    try {
+      let r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
+      if (!r.ok && r.status === 401) {
+        r = await fetch('/api/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
+      }
+      const body = await responseBody(r)
+      if (r.ok) {
+        setMsg('')
+        await refresh()
+      } else if (r.status >= 500) {
+        setMsg(GENERIC_SERVER_ERROR)
+      } else {
+        setMsg(body.error || 'Authentication failed')
+      }
+    } catch {
+      setMsg(GENERIC_SERVER_ERROR)
     }
-    const body = await r.json()
-    if (r.ok) { setMsg(''); await refresh() } else setMsg(body.error || 'Authentication failed')
   }
 
   async function getQuote(nextSymbol = symbol) {
-    const r = await fetch('/api/quote?symbol=' + encodeURIComponent(nextSymbol))
-    const j = await r.json()
-    if (r.ok) { setQuote(j); if (!limitPrice) setLimitPrice(Number(j.price).toFixed(2)); if (!stopPrice) setStopPrice(Number(j.price).toFixed(2)) }
-    else setMsg(j.error || 'Quote failed')
+    try {
+      const r = await fetch('/api/quote?symbol=' + encodeURIComponent(nextSymbol))
+      const j = await responseBody(r)
+      if (r.ok) { setQuote(j as Quote); if (!limitPrice) setLimitPrice(Number(j.price).toFixed(2)); if (!stopPrice) setStopPrice(Number(j.price).toFixed(2)) }
+      else setMsg(r.status >= 500 ? GENERIC_SERVER_ERROR : (j.error || 'Quote failed'))
+    } catch {
+      setMsg(GENERIC_SERVER_ERROR)
+    }
   }
 
   async function advanceMarket() {
-    const r = await fetch('/api/paper/market/advance', { method: 'POST' })
-    const j = await r.json()
-    if (r.ok) { setMsg(`Market advanced; ${j.orders.filled} order(s) filled`); await getQuote(); await refresh() }
-    else setMsg(j.error || 'Failed to advance paper market')
+    try {
+      const r = await fetch('/api/paper/market/advance', { method: 'POST' })
+      const j = await responseBody(r)
+      if (r.ok) { setMsg(`Market advanced; ${j.orders && (j.orders as { filled?: number }).filled || 0} order(s) filled`); await getQuote(); await refresh() }
+      else setMsg(r.status >= 500 ? GENERIC_SERVER_ERROR : (j.error || 'Failed to advance paper market'))
+    } catch {
+      setMsg(GENERIC_SERVER_ERROR)
+    }
   }
 
   async function order(side: 'buy' | 'sell') {
-    const payload: Record<string, unknown> = { symbol, side, qty: Number(qty), orderType, timeInForce }
-    if (orderType === 'limit' || orderType === 'stop_limit') payload.limitPrice = Number(limitPrice)
-    if (orderType === 'stop' || orderType === 'stop_limit') payload.stopPrice = Number(stopPrice)
-    const r = await fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-    const j = await r.json()
-    setMsg(r.ok && j.order?.status === 'filled' ? `Filled ${side} ${qty} ${symbol}` : r.ok ? `Order ${j.order.status}: ${symbol}` : (j.error || 'Order failed'))
-    if (r.ok) await refresh()
+    try {
+      const payload: Record<string, unknown> = { symbol, side, qty: Number(qty), orderType, timeInForce }
+      if (orderType === 'limit' || orderType === 'stop_limit') payload.limitPrice = Number(limitPrice)
+      if (orderType === 'stop' || orderType === 'stop_limit') payload.stopPrice = Number(stopPrice)
+      const r = await fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const j = await responseBody(r)
+      setMsg(r.status >= 500 ? GENERIC_SERVER_ERROR : r.ok && (j.order as Order)?.status === 'filled' ? `Filled ${side} ${qty} ${symbol}` : r.ok ? `Order ${(j.order as Order)?.status}: ${symbol}` : (j.error || 'Order failed'))
+      if (r.ok) await refresh()
+    } catch {
+      setMsg(GENERIC_SERVER_ERROR)
+    }
   }
 
   async function cancel(id: string) {
-    const r = await fetch(`/api/orders/${id}/cancel`, { method: 'POST' })
-    const j = await r.json()
-    setMsg(r.ok ? 'Order canceled' : (j.error || 'Cancel failed'))
-    await refresh()
+    try {
+      const r = await fetch(`/api/orders/${id}/cancel`, { method: 'POST' })
+      const j = await responseBody(r)
+      setMsg(r.status >= 500 ? GENERIC_SERVER_ERROR : r.ok ? 'Order canceled' : (j.error || 'Cancel failed'))
+      await refresh()
+    } catch {
+      setMsg(GENERIC_SERVER_ERROR)
+    }
   }
 
   if (!logged) return (
