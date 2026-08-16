@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { sql } from '@/lib/db'
 import { verifyPassword } from '@/lib/password'
 import { createSession, setSessionCookie } from '@/lib/session'
+import { serverError } from '@/lib/api-error'
 
 const schema = z.object({ email: z.string().email(), password: z.string().min(8) })
 
@@ -18,6 +19,9 @@ export async function POST(req: Request) {
     setSessionCookie(response, token)
     return response
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Login failed' }, { status: 400 })
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+    }
+    return serverError(error, 'auth/login')
   }
 }
