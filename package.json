@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --test tests/*.test.ts",
     "start": "next start",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:check": "node scripts/migrate.mjs --check"
