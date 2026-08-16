@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getUser } from '@/lib/session'
 import { getPaperAccount } from '@/lib/paper-trading'
+import { serverError } from '@/lib/api-error'
 
 export async function GET() {
   const user = await getUser()
@@ -10,7 +11,6 @@ export async function GET() {
     const account = await getPaperAccount(user.id)
     return NextResponse.json({ account })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to load paper account'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return serverError(error, 'portfolio')
   }
 }
